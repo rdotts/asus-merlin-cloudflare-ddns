@@ -1,5 +1,8 @@
 # Cloudflare Dynamic DNS Update Script for Asuswrt-Merlin (on supported ASUS routers)
 
+Changed logging to be more inline with usage that assumes entware and syslog-ng, logrotate, and logger are installed on an external drive.  In other words, logs are handled by syslog (via logger), log size by logrotate, and logs are moved to /opt/var/log on the external drive.  Also since the log file can't be monitored for throttling anymore (since it doesn't exist), it just pauses for 5 seconds every time, because why not?  At least for my use case, this only gets called every few days or after reboot, so what's 5 seconds?
+Actual DDNS functionality should be the same.
+
 The Asuswrt-Merlin custom firmware adds support for custom dynamic DNS providers to various ASUS routers. This is great for Cloudflare users because, although Cloudflare is not one of the built-in providers, we can add support for it. This guide and accompanying script do exactly that. Confirmed works on the following model routers:
   - GT-AX11000,
   - RT-AC3200,

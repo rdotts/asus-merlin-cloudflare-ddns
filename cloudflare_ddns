@@ -1,14 +1,18 @@
 #!/bin/sh
 
 _DEBUG="off"
-DEBUG_LOGFILE=$0.debug
+
+log_output()
+{
+        logger -st "cloudflare_ddns" "$1 $2"
+}
+
 debug()
 {
-	if [ "$_DEBUG" == "on" ]; then
-		timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-		echo "$timestamp	$1"
-	fi
-} >> $DEBUG_LOGFILE
+        if [ "$_DEBUG" == "on" ]; then
+                logger -st "cloudflare_ddns-DEBUG" "$1"
+        fi
+}
 
 debug "Executed as: $0 $@"
 
@@ -23,12 +27,10 @@ fi
 
 # *** USER SETTINGS ***
 THROTTLE_SECONDS=5  # Limits calls to Cloudflare to minimize abuse
-LOGFILE=$0.log
-LOGFILE_LIMIT_IN_BYTES=$((200*1024))  # default is 200kb
+sleep $THROTTLE_SECONDS
 
 # *** OTHER SETTINGS ***
 CMD_ERROR_TEMPFILE=$(dirname $0)/.$(basename $0).command.stderr.tmp
-LOGFILE_TEMPFILE=$(dirname $0)/.$(basename $0).tmp
 FIRMWARE_NOTIFY_CMD=/sbin/ddns_custom_updated
 FIRMWARE_UPDATE_SUCCESS=1
 FIRMWARE_UPDATE_FAILURE=0
@@ -39,26 +41,10 @@ if [ -n $CLOUDFLARE_API_TOKEN ]; then
 	CLOUDFLARE_AUTH_HEADERS="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
 fi
 
-# ensure temp files are deleted even if unexpected exit
-trap "rm -f $LOGFILE_TEMPFILE $CMD_ERROR_TEMPFILE" EXIT
-
 # user input IP address
 NEW_IP=$1
 
 debug "Completed settings"
-
-log_output()
-{
-	timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-	echo "$timestamp	$1	$2"
-} >> $LOGFILE
-
-prune_log()
-{
-	debug "prune_log"
-	tail -c$LOGFILE_LIMIT_IN_BYTES $LOGFILE > $LOGFILE_TEMPFILE
-	cat $LOGFILE_TEMPFILE > $LOGFILE
-}
 
 list_dns_records()
 {
@@ -79,12 +65,6 @@ list_dns_records_onfailure()
 {
 	debug "list_dns_records_onfailure"
 	log_output LIST_FAILED "$1"
-}
-
-list_dns_records_onthrottled()
-{
-	debug "list_dns_records_onthrottled"
-	log_output LIST_THROTTLED
 }
 
 update_record()
@@ -112,51 +92,20 @@ update_record_onfailure()
 	log_output UPDATE_FAILED "$1"
 }
 
-update_record_onthrottled()
-{
-	debug "update_record_onthrottled"
-	$FIRMWARE_NOTIFY_CMD $FIRMWARE_UPDATE_FAILURE
-	log_output UPDATE_THROTTLED
-}
-
-throttle()
-{
-	debug "throttle"
-	# if we can't read the log file, assume it's a first run
-	if [ ! -r $LOGFILE ]; then
-		return
-	fi
-
-	last_run_time=$(date -d "$(sort -r $LOGFILE | \
-		grep '^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]' | \
-		grep -vm1 THROTTLED | cut -f 1)" +%s)
-	current_time=$(date +%s)
-	if [ $(expr $last_run_time + $THROTTLE_SECONDS) -gt $current_time ]; then
-		$throttled
-		exit 1
-	fi
-}
-
 debug "Completed function definitions"
 
 command=update_record
 success=update_record_onsuccess
 failure=update_record_onfailure
-throttled=update_record_onthrottled
 
 # if argument is the word 'list', query for a listing of all zone records
 if [ "$NEW_IP" = "list" ]; then
 	command=list_dns_records
 	success=list_dns_records_onsuccess
 	failure=list_dns_records_onfailure
-	throttled=list_dns_records_onthrottled
 fi
 
 debug "Completed function assignments"
-
-throttle
-
-debug "Completed throttle"
 
 OUTPUT=$( $command 2> $CMD_ERROR_TEMPFILE )
 
@@ -175,7 +124,3 @@ else
 fi
 
 debug "Completed command result handling"
-
-prune_log
-
-debug "Completed pruning"
